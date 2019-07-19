@@ -1,0 +1,6 @@
+\.DS_Store
+\.python-version
+bicleaner\.egg-info/
+build/lib/bicleaner/
+build/scripts-3\.5/
+dist/
