@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-import logging
 import gzip
-import regex
+import logging
 
-#Allows to load modules while inside or outside the package
+# Allows to load modules while inside or outside the package
 try:
     from .util import regex_alpha
 except (SystemError, ImportError):
@@ -19,20 +18,20 @@ class ProbabilisticDictionary(object):
         fname = file if not hasattr(file, 'name') else file.name
         with gzip.open(fname, "rt") as fd:
             self.d = dict()
-            self.minprob = 1.0 # minimum probability
+            self.minprob = 1.0  # minimum probability
             logging.debug("Loading dictionary {0}".format(fname))
             self.load(fd)
             logging.debug("Dictionary {0} loaded".format(fname))
-            self.smooth = self.minprob*0.1  # smooth property
+            self.smooth = self.minprob * 0.1  # smooth property
 
     # Method to load a dictionary to the class (called by the constructor)
-    def load(self,fd):
+    def load(self, fd):
         for line in fd:
-            line  = line.rstrip("\n")
+            line = line.rstrip("\n")
             parts = line.split()
-            l1    = parts[1]
-            l2    = parts[0]
-            prob  = float(parts[2])
+            l1 = parts[1]
+            l2 = parts[0]
+            prob = float(parts[2])
             if not self.alpha.match(l1):
                 continue
             if prob < self.minprob:
@@ -49,11 +48,10 @@ class ProbabilisticDictionary(object):
                 return self.smooth
             else:
                 return self.d[x][y]
-        elif x == y: # relax this comparison?
+        elif x == y:  # relax this comparison?
             return 1.0
         else:
             return self.smooth
-
 
     def get_prob_alpha(self, x, y):
         # x is assumed to exist for performance reason!!!
@@ -63,12 +61,11 @@ class ProbabilisticDictionary(object):
             return self.d[x][y]
 
     def get_prob_nonalpha(self, x, y):
-        if x == y and len(x) < 20: # limit to 20 characters non-alphabetic words recognised by the dictionary
+        if x == y and len(x) < 20:  # limit to 20 characters non-alphabetic words recognised by the dictionary
             return 1.0
         else:
             return self.smooth
 
-    
     def __getitem__(self, key):
         if self.alpha.match(key):
             if key in self.d:

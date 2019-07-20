@@ -1,36 +1,32 @@
 #!/usr/bin/env python
 
-from heapq import heappush, heappop
+import argparse
+import logging
+import os
+import sys
+from tempfile import TemporaryFile, NamedTemporaryFile
+from timeit import default_timer
+
+import numpy as np
+from mosestokenizer import MosesTokenizer
 from sklearn import neighbors
 from sklearn import svm
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.externals import joblib
-from tempfile import TemporaryFile, NamedTemporaryFile
-from timeit import default_timer
 from toolwrapper import ToolWrapper
-from mosestokenizer import MosesTokenizer
 
-import argparse
-import logging
-import math
-import numpy as np
-import os
-import random
-import sklearn
-import sys
-
-#Allows to load modules while inside or outside the package  
+# Allows to load modules while inside or outside the package
 try:
     from .features import feature_extract, FEATURES_VERSION
     from .prob_dict import ProbabilisticDictionary
     from .util import no_escaping, check_positive, check_positive_or_zero, logging_setup
-    from .training import shuffle,precision_recall, repr_right, write_metadata, train_fluency_filter
+    from .training import shuffle, precision_recall, repr_right, write_metadata, train_fluency_filter
 except (SystemError, ImportError):
     from features import feature_extract, FEATURES_VERSION
     from prob_dict import ProbabilisticDictionary
     from util import no_escaping, check_positive, check_positive_or_zero, logging_setup
-    from training import shuffle,precision_recall, repr_right, write_metadata, train_fluency_filter
+    from training import shuffle, precision_recall, repr_right, write_metadata, train_fluency_filter
 
 __author__ = "Sergio Ortiz-Rojas"
 # Please, don't delete the previous descriptions. Just add new version description at the end.
@@ -40,48 +36,69 @@ __version__ = "Version 0.3 # 14/12/2018 # Lite version # Marta Bañón"
 __version__ = "Version 0.4 # 18/12/2018 # Changed to generalized tokenizer # Marta Bañón"
 __version__ = "Version 0.5 # 18/01/2019 # Integrated training of LM and refactor to avoid code duplicity # Víctor M. Sánchez-Cartagena"
 
-    
+
 # Argument parsing
 def initialization():
-    parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), formatter_class=argparse.ArgumentDefaultsHelpFormatter, description=__doc__)
+    parser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]),
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter, description=__doc__)
 
-    parser.add_argument('input',  nargs='?', type=argparse.FileType('r'), default=sys.stdin,  help="Tab-separated bilingual input file")
+    parser.add_argument('input', nargs='?', type=argparse.FileType('r'), default=sys.stdin,
+                        help="Tab-separated bilingual input file")
 
     groupM = parser.add_argument_group("Mandatory")
-    groupM.add_argument('-m', '--metadata', type=argparse.FileType('w'), required=True, help="Training metadata (YAML file)")
+    groupM.add_argument('-m', '--metadata', type=argparse.FileType('w'), required=True,
+                        help="Training metadata (YAML file)")
     groupM.add_argument('-c', '--classifier', type=argparse.FileType('wb'), required=True, help="Classifier data file")
-    groupM.add_argument('-s', '--source_lang',  required=True, help="Source language code")
+    groupM.add_argument('-s', '--source_lang', required=True, help="Source language code")
     groupM.add_argument('-t', '--target_lang', required=True, help="Target language code")
-    groupM.add_argument('-d', '--source_dictionary',  type=argparse.FileType('r'), required=True, help="LR gzipped probabilistic dictionary")
-    groupM.add_argument('-D', '--target_dictionary', type=argparse.FileType('r'), required=True, help="RL gzipped probabilistic dictionary")
+    groupM.add_argument('-d', '--source_dictionary', type=argparse.FileType('r'), required=True,
+                        help="LR gzipped probabilistic dictionary")
+    groupM.add_argument('-D', '--target_dictionary', type=argparse.FileType('r'), required=True,
+                        help="RL gzipped probabilistic dictionary")
 
     groupO = parser.add_argument_group('Options')
     groupO.add_argument('-S', '--source_tokeniser_path', help="Source language tokeniser absolute path")
     groupO.add_argument('-T', '--target_tokeniser_path', help="Target language tokeniser absolute path")
     groupO.add_argument('--normalize_by_length', action='store_true', help="Normalize by length in qmax dict feature")
     groupO.add_argument('--treat_oovs', action='store_true', help="Special treatment for OOVs in qmax dict feature")
-    groupO.add_argument('--qmax_limit', type=check_positive_or_zero, default=20, help="Number of max target words to be taken into account, sorted by length")
+    groupO.add_argument('--qmax_limit', type=check_positive_or_zero, default=20,
+                        help="Number of max target words to be taken into account, sorted by length")
     groupO.add_argument('--disable_features_quest', action='store_false', help="Disable less important features")
-    groupO.add_argument('-g', '--good_examples',  type=check_positive_or_zero, default=50000, help="Number of good examples")
-    groupO.add_argument('-w', '--wrong_examples', type=check_positive_or_zero, default=50000, help="Number of wrong examples")
-    groupO.add_argument('--good_test_examples',  type=check_positive_or_zero, default=10000, help="Number of good test examples")
-    groupO.add_argument('--wrong_test_examples', type=check_positive_or_zero, default=10000, help="Number of wrong test examples")
-    groupO.add_argument('--classifier_type', choices=['svm', 'nn', 'nn1', 'adaboost', 'random_forest'], default="random_forest", help="Classifier type")
-    groupO.add_argument('--dump_features', type=argparse.FileType('w'), default=None, help="Dump training features to file")
-    groupO.add_argument('--wrong_examples_file', type=argparse.FileType('r'), default=None, help="File with wrong examples extracted to replace the synthetic examples from method used by default")
-    groupO.add_argument('--features_version', type=check_positive, default=FEATURES_VERSION , help="Version of the features")
-    
-    #For LM filtering
-    groupO.add_argument('--noisy_examples_file_sl',  type=str, help="File with noisy text in the SL. These are used to estimate the perplexity of noisy text.")
-    groupO.add_argument('--noisy_examples_file_tl',  type=str, help="File with noisy text in the TL. These are used to estimate the perplexity of noisy text.")
-    groupO.add_argument('--lm_dev_size', type=check_positive_or_zero, default=2000, help="Number of sentences to be removed from clean text before training LMs. These are used to estimate the perplexity of clean text.")
+    groupO.add_argument('-g', '--good_examples', type=check_positive_or_zero, default=50000,
+                        help="Number of good examples")
+    groupO.add_argument('-w', '--wrong_examples', type=check_positive_or_zero, default=50000,
+                        help="Number of wrong examples")
+    groupO.add_argument('--good_test_examples', type=check_positive_or_zero, default=10000,
+                        help="Number of good test examples")
+    groupO.add_argument('--wrong_test_examples', type=check_positive_or_zero, default=10000,
+                        help="Number of wrong test examples")
+    groupO.add_argument('--classifier_type', choices=['svm', 'nn', 'nn1', 'adaboost', 'random_forest'],
+                        default="random_forest", help="Classifier type")
+    groupO.add_argument('--dump_features', type=argparse.FileType('w'), default=None,
+                        help="Dump training features to file")
+    groupO.add_argument('--wrong_examples_file', type=argparse.FileType('r'), default=None,
+                        help="File with wrong examples extracted to replace the synthetic examples from method used by default")
+    groupO.add_argument('--features_version', type=check_positive, default=FEATURES_VERSION,
+                        help="Version of the features")
+
+    # For LM filtering
+    groupO.add_argument('--noisy_examples_file_sl', type=str,
+                        help="File with noisy text in the SL. These are used to estimate the perplexity of noisy text.")
+    groupO.add_argument('--noisy_examples_file_tl', type=str,
+                        help="File with noisy text in the TL. These are used to estimate the perplexity of noisy text.")
+    groupO.add_argument('--lm_dev_size', type=check_positive_or_zero, default=2000,
+                        help="Number of sentences to be removed from clean text before training LMs. These are used to estimate the perplexity of clean text.")
     groupO.add_argument('--lm_file_sl', type=str, help="SL language model output file.")
     groupO.add_argument('--lm_file_tl', type=str, help="TL language model output file.")
-    groupO.add_argument('--lm_training_file_sl', type=str, help="SL text from which the SL LM is trained. If this parameter is not specified, SL LM is trained from the SL side of the input file, after removing --lm_dev_size sentences.")
-    groupO.add_argument('--lm_training_file_tl', type=str, help="TL text from which the TL LM is trained. If this parameter is not specified, TL LM is trained from the TL side of the input file, after removing --lm_dev_size sentences.")
-    groupO.add_argument('--lm_clean_examples_file_sl', type=str, help="File with clean text in the SL. Used to estimate the perplexity of clean text. This option must be used together with --lm_training_file_sl and both files must not have common sentences. This option replaces --lm_dev_size.")
-    groupO.add_argument('--lm_clean_examples_file_tl', type=str, help="File with clean text in the TL. Used to estimate the perplexity of clean text. This option must be used together with --lm_training_file_tl and both files must not have common sentences. This option replaces --lm_dev_size.")
-    
+    groupO.add_argument('--lm_training_file_sl', type=str,
+                        help="SL text from which the SL LM is trained. If this parameter is not specified, SL LM is trained from the SL side of the input file, after removing --lm_dev_size sentences.")
+    groupO.add_argument('--lm_training_file_tl', type=str,
+                        help="TL text from which the TL LM is trained. If this parameter is not specified, TL LM is trained from the TL side of the input file, after removing --lm_dev_size sentences.")
+    groupO.add_argument('--lm_clean_examples_file_sl', type=str,
+                        help="File with clean text in the SL. Used to estimate the perplexity of clean text. This option must be used together with --lm_training_file_sl and both files must not have common sentences. This option replaces --lm_dev_size.")
+    groupO.add_argument('--lm_clean_examples_file_tl', type=str,
+                        help="File with clean text in the TL. Used to estimate the perplexity of clean text. This option must be used together with --lm_training_file_tl and both files must not have common sentences. This option replaces --lm_dev_size.")
+
     groupL = parser.add_argument_group('Logging')
     groupL.add_argument('-q', '--quiet', action='store_true', help='Silent logging mode')
     groupL.add_argument('--debug', action='store_true', help='Debug logging mode')
@@ -93,24 +110,23 @@ def initialization():
     return args
 
 
-
 # Training function: receives two file descriptors, input and test, and a
 # type classifiers and trains a classifier storing it in classifier_output
 # and returns some quality estimates.
 def train_classifier(input_features, test_features, classifier_type, classifier_output):
-    feats=[]
-    labels=[]
+    feats = []
+    labels = []
 
     # Load features and labels and format them as numpy array
     for line in input_features:
-        parts=line.rstrip("\n").split("\t")
-        feats.append( [float(v) for v in parts[:-1] ] )
+        parts = line.rstrip("\n").split("\t")
+        feats.append([float(v) for v in parts[:-1]])
         labels.append(int(parts[-1]))
-        
+
     dataset = dict()
-    dataset['data']   = np.array(feats)
+    dataset['data'] = np.array(feats)
     dataset['target'] = np.array(labels)
-    
+
     # Train classifier
     if classifier_type == "svm":
         clf = svm.SVC(gamma=0.001, C=100., probability=True)
@@ -123,21 +139,21 @@ def train_classifier(input_features, test_features, classifier_type, classifier_
     elif classifier_type == "random_forest":
         clf = RandomForestClassifier(bootstrap=True, class_weight=None,
                                      criterion='gini',
-                                     max_depth=2, 
-                                     max_features='auto', 
+                                     max_depth=2,
+                                     max_features='auto',
                                      max_leaf_nodes=None,
-                                     min_impurity_decrease=0.0, 
+                                     min_impurity_decrease=0.0,
                                      min_impurity_split=None,
-                                     min_samples_leaf=1, 
+                                     min_samples_leaf=1,
                                      min_samples_split=2,
-                                     min_weight_fraction_leaf=0.0, 
+                                     min_weight_fraction_leaf=0.0,
                                      n_estimators=200, n_jobs=1,
-                                     oob_score=False, 
-                                     random_state=0, 
-                                     verbose=0, 
+                                     oob_score=False,
+                                     random_state=0,
+                                     verbose=0,
                                      warm_start=False)
     else:
-        logging.error("Unknown classifier: "+ classifier_type)
+        logging.error("Unknown classifier: " + classifier_type)
         sys.exit(1)
 
     clf.fit(dataset['data'], dataset['target'])
@@ -149,24 +165,24 @@ def train_classifier(input_features, test_features, classifier_type, classifier_
 
     for line in test_features:
         parts = line.rstrip("\n").split("\t")
-        feats.append([float (v) for v in parts[:-1]])
+        feats.append([float(v) for v in parts[:-1]])
         labels.append(int(parts[-1]))
 
     dataset = np.array(feats)
     prediction = clf.predict_proba(dataset)
-    
+
     pos = 0
     good = []
     wrong = []
     for pred in prediction:
         if labels[pos] == 1:
-           good.append(pred[1])
+            good.append(pred[1])
         else:
-           wrong.append(pred[1])
+            wrong.append(pred[1])
         pos += 1
 
-    hgood  = np.histogram(good,  bins = np.arange(0, 1.1, 0.1))
-    hwrong = np.histogram(wrong, bins = np.arange(0, 1.1, 0.1))
+    hgood = np.histogram(good, bins=np.arange(0, 1.1, 0.1))
+    hwrong = np.histogram(wrong, bins=np.arange(0, 1.1, 0.1))
 
     return hgood[0].tolist(), hwrong[0].tolist()
 
@@ -176,32 +192,34 @@ def perform_training(args):
     global nline
     time_start = default_timer()
     logging.info("Starting process")
-    
-    #Read input to a named temporary file
-    #We may need to read it multiple times and that would be problematic if it is sys.stdin
-    input = NamedTemporaryFile(mode="w",delete=False)
+
+    # Read input to a named temporary file
+    # We may need to read it multiple times and that would be problematic if it is sys.stdin
+    input = NamedTemporaryFile(mode="w", delete=False)
     for line in args.input:
         input.write(line)
     input.close()
-    
-    stats=None
+
+    stats = None
     with open(input.name) as input_f:
-        args.input=input_f
-        stats=train_fluency_filter(args)
+        args.input = input_f
+        stats = train_fluency_filter(args)
         args.input.seek(0)
 
         # Shuffle and get length ratio
-        total_size, length_ratio, good_sentences, wrong_sentences = shuffle(args.input, args.good_examples + args.good_test_examples, args.wrong_examples + args.wrong_test_examples, args.wrong_examples_file)
+        total_size, length_ratio, good_sentences, wrong_sentences = shuffle(args.input,
+                                                                            args.good_examples + args.good_test_examples,
+                                                                            args.wrong_examples + args.wrong_test_examples,
+                                                                            args.wrong_examples_file)
     os.remove(input.name)
-    
+
     args.length_ratio = length_ratio
-     
 
     # Load dictionaries
     args.dict_sl_tl = ProbabilisticDictionary(args.source_dictionary)
     args.dict_tl_sl = ProbabilisticDictionary(args.target_dictionary)
-    
-    features_file = NamedTemporaryFile( delete=False)
+
+    features_file = NamedTemporaryFile(delete=False)
     if args.source_tokeniser_path:
         tokl = ToolWrapper(args.source_tokeniser_path.split(' '))
     else:
@@ -211,37 +229,35 @@ def perform_training(args):
     else:
         tokr = MosesTokenizer(args.target_lang)
     with open(good_sentences.name, 'r') as gsf, \
-    open(wrong_sentences.name, 'r') as wsf, \
-    open(features_file.name, 'w+') as fileout:
+            open(wrong_sentences.name, 'r') as wsf, \
+            open(features_file.name, 'w+') as fileout:
 
         for i in gsf:
-            srcsen,trgsen = i.split("\t")[:2]
-#            print(str(i) + " ---" + str(srcsen) + " --- " + str(trgsen))
+            srcsen, trgsen = i.split("\t")[:2]
+            #            print(str(i) + " ---" + str(srcsen) + " --- " + str(trgsen))
             features = feature_extract(srcsen, trgsen, tokl, tokr, args)
             for j in features:
                 fileout.write("{}".format(j))
                 fileout.write("\t")
             fileout.write("{}".format(1))
             fileout.write("\n")
-        fileout.flush()    
-        
+        fileout.flush()
+
         for i in wsf:
-            srcsen,trgsen = i.split("\t")[:2]
-#            print(str(i) + " ---" + str(srcsen) + " --- " + str(trgsen))
+            srcsen, trgsen = i.split("\t")[:2]
+            #            print(str(i) + " ---" + str(srcsen) + " --- " + str(trgsen))
             features = feature_extract(srcsen, trgsen, tokl, tokr, args)
             for j in features:
                 fileout.write("{}".format(j))
                 fileout.write("\t")
             fileout.write("{}".format(0))
             fileout.write("\n")
-        fileout.flush()        
+        fileout.flush()
     tokl.close()
     tokr.close()
-   
+
     features_file.seek(0)
-    
-    
-   
+
     if args.dump_features:
         logging.info("Dumping features to " + os.path.abspath(args.dump_features.name))
         for i in features_file:
@@ -254,10 +270,11 @@ def perform_training(args):
 
     hgood = []
     hwrong = []
-    with TemporaryFile("w+") as features_train, TemporaryFile("w+") as features_test, open(features_file.name, 'r') as ff:
+    with TemporaryFile("w+") as features_train, TemporaryFile("w+") as features_test, open(features_file.name,
+                                                                                           'r') as ff:
         nline = 0
         for line in ff:
-#            print(line)
+            #            print(line)
             if nline < args.good_examples:
                 features_train.write(line)
             elif nline < args.good_examples + args.good_test_examples:
@@ -267,10 +284,10 @@ def perform_training(args):
             else:
                 features_test.write(line)
             nline += 1
-        
+
         features_train.flush()
         features_test.flush()
-        
+
         features_train.seek(0)
         features_test.seek(0)
         hgood, hwrong = train_classifier(features_train, features_test, args.classifier_type, args.classifier)
@@ -287,13 +304,15 @@ def perform_training(args):
     elapsed_time = default_timer() - time_start
     logging.info("Elapsed time {:.2f} s".format(elapsed_time))
 
+
 # Main function: setup logging and calling the main loop
 def main(args):
     # Parameter parsing
-#    args = initialization()
+    #    args = initialization()
 
     # Filtering
     perform_training(args)
+
 
 if __name__ == '__main__':
     args = initialization()

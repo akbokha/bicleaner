@@ -164,7 +164,7 @@ def c_no_urls(sentence):
 
 
 def c_consistency_of_special_tokens(left, right):
-    same_urls= sorted(regex_url.findall(left)) == sorted(regex_url.findall(right))
+    same_urls = sorted(regex_url.findall(left)) == sorted(regex_url.findall(right))
     same_email_addresses = sorted(regex_email_address.findall(left)) == sorted(regex_email_address.findall(right))
     return same_urls and same_email_addresses
 

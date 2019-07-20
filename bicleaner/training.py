@@ -1,31 +1,31 @@
 import logging
+import math
 import os
 import random
-import math
-from tempfile import TemporaryFile, NamedTemporaryFile
 import typing
+from tempfile import TemporaryFile, NamedTemporaryFile
 
 try:
-    from .lm import DualLMFluencyFilter,LMType, DualLMStats
+    from .lm import DualLMFluencyFilter, LMType, DualLMStats
     from .util import shuffle_file
 except (SystemError, ImportError):
-    from lm import DualLMFluencyFilter,LMType, DualLMStats
+    from lm import DualLMFluencyFilter, LMType, DualLMStats
     from util import shuffle_file
 
 
-def shuffle_lm_training_text(input: typing.TextIO,dev_size: int ) -> (str,str,str,str):
+def shuffle_lm_training_text(input: typing.TextIO, dev_size: int) -> (str, str, str, str):
+    dev_sl = NamedTemporaryFile("w", delete=False)
+    dev_tl = NamedTemporaryFile("w", delete=False)
+    train_sl = NamedTemporaryFile("w", delete=False)
+    train_tl = NamedTemporaryFile("w", delete=False)
 
-    dev_sl=NamedTemporaryFile("w",delete=False)
-    dev_tl=NamedTemporaryFile("w",delete=False)
-    train_sl=NamedTemporaryFile("w",delete=False)
-    train_tl=NamedTemporaryFile("w",delete=False)
-
-    with TemporaryFile("w+") as temp_sl, TemporaryFile("w+") as temp_tl, TemporaryFile("w+") as shuf_sl, TemporaryFile("w+") as shuf_tl:
-        #Read tab-separated input and write its content into two different files
+    with TemporaryFile("w+") as temp_sl, TemporaryFile("w+") as temp_tl, TemporaryFile("w+") as shuf_sl, TemporaryFile(
+            "w+") as shuf_tl:
+        # Read tab-separated input and write its content into two different files
         for line in input:
-            parts=line.rstrip("\n").split("\t")
-            line_sl=parts[0]
-            line_tl=parts[1]
+            parts = line.rstrip("\n").split("\t")
+            line_sl = parts[0]
+            line_tl = parts[1]
             temp_sl.write(line_sl)
             temp_sl.write("\n")
             temp_tl.write(line_tl)
@@ -35,19 +35,19 @@ def shuffle_lm_training_text(input: typing.TextIO,dev_size: int ) -> (str,str,st
         temp_sl.seek(0)
         temp_tl.seek(0)
 
-        #Shuffle the independent files
+        # Shuffle the independent files
         shuffle_file(temp_sl, shuf_sl)
         shuffle_file(temp_tl, shuf_tl)
 
-        #read them and split between dev and train
+        # read them and split between dev and train
         shuf_sl.seek(0)
         shuf_tl.seek(0)
 
         for i in range(dev_size):
-            line=shuf_sl.readline()
+            line = shuf_sl.readline()
             dev_sl.write(line)
 
-            line=shuf_tl.readline()
+            line = shuf_tl.readline()
             dev_tl.write(line)
 
         for line in shuf_sl:
@@ -64,7 +64,6 @@ def shuffle_lm_training_text(input: typing.TextIO,dev_size: int ) -> (str,str,st
     return train_sl.name, train_tl.name, dev_sl.name, dev_tl.name
 
 
-
 def train_fluency_filter(args):
     # Prepare corpora:
     # Input corpora for training the classifier split in 2 parts:
@@ -74,17 +73,16 @@ def train_fluency_filter(args):
 
     logging.info("Training LM-based fluency filter")
 
-    if not ( args.noisy_examples_file_sl and args.noisy_examples_file_tl and args.lm_file_sl and args.lm_file_tl  ):
+    if not (args.noisy_examples_file_sl and args.noisy_examples_file_tl and args.lm_file_sl and args.lm_file_tl):
         return None
 
-
-    inputIsTmp=True
+    inputIsTmp = True
     if args.lm_training_file_sl and args.lm_training_file_tl and args.lm_clean_examples_file_sl and args.lm_clean_examples_file_tl:
-        inputIsTmp=False
-        lm_train_path_sl=args.lm_training_file_sl
-        lm_train_path_tl=args.lm_training_file_tl
-        lm_dev_clean_sl=args.lm_clean_examples_file_sl
-        lm_dev_clean_tl=args.lm_clean_examples_file_tl
+        inputIsTmp = False
+        lm_train_path_sl = args.lm_training_file_sl
+        lm_train_path_tl = args.lm_training_file_tl
+        lm_dev_clean_sl = args.lm_clean_examples_file_sl
+        lm_dev_clean_tl = args.lm_clean_examples_file_tl
         logging.info("SL LM training corpus: {}".format(lm_train_path_sl))
         logging.info("TL LM training corpus: {}".format(lm_train_path_tl))
         logging.info("SL LM dev clean corpus: {}".format(lm_dev_clean_sl))
@@ -92,15 +90,21 @@ def train_fluency_filter(args):
         logging.info("SL LM dev noisy corpus: {}".format(args.noisy_examples_file_sl))
         logging.info("TL LM dev noisy corpus: {}".format(args.noisy_examples_file_tl))
     else:
-        logging.info("SL & TL LM training corpora have been obtained from tab-separated input file (the same ones used for training the Random Forest classifier), after randomly removing {} sentences".format(args.lm_dev_size))
-        logging.info("SL & TL LM dev clean corpora have been randomly selected from input input file (the same used for training the Random Forest classifier): {} sentences".format(args.lm_dev_size))
+        logging.info(
+            "SL & TL LM training corpora have been obtained from tab-separated input file (the same ones used for training the Random Forest classifier), after randomly removing {} sentences".format(
+                args.lm_dev_size))
+        logging.info(
+            "SL & TL LM dev clean corpora have been randomly selected from input input file (the same used for training the Random Forest classifier): {} sentences".format(
+                args.lm_dev_size))
         logging.info("SL LM dev noisy corpus: {}".format(args.noisy_examples_file_sl))
         logging.info("TL LM dev noisy corpus: {}".format(args.noisy_examples_file_tl))
-        lm_train_path_sl,lm_train_path_tl, lm_dev_clean_sl, lm_dev_clean_tl = shuffle_lm_training_text(args.input,args.lm_dev_size)
+        lm_train_path_sl, lm_train_path_tl, lm_dev_clean_sl, lm_dev_clean_tl = shuffle_lm_training_text(args.input,
+                                                                                                        args.lm_dev_size)
 
     try:
-        ff=DualLMFluencyFilter(LMType.CHARACTER,args.source_lang, args.target_lang)
-        stats=ff.train(lm_train_path_sl, lm_train_path_tl,lm_dev_clean_sl,lm_dev_clean_tl, args.noisy_examples_file_sl,args.noisy_examples_file_tl, args.lm_file_sl, args.lm_file_tl)
+        ff = DualLMFluencyFilter(LMType.CHARACTER, args.source_lang, args.target_lang)
+        stats = ff.train(lm_train_path_sl, lm_train_path_tl, lm_dev_clean_sl, lm_dev_clean_tl,
+                         args.noisy_examples_file_sl, args.noisy_examples_file_tl, args.lm_file_sl, args.lm_file_tl)
     finally:
         if inputIsTmp:
             os.remove(lm_train_path_sl)
@@ -113,9 +117,9 @@ def train_fluency_filter(args):
 # Random shuffle corpora to ensure fairness of training and estimates.
 def shuffle(input, n_aligned, n_misaligned, wrong_examples_file):
     logging.info("Shuffle starts")
-    good_sentences  = TemporaryFile("w+")
+    good_sentences = TemporaryFile("w+")
     wrong_sentences = TemporaryFile("w+")
-    total_size   = 0
+    total_size = 0
     length_ratio = 0
 
     with TemporaryFile("w+") as temp:
@@ -143,11 +147,13 @@ def shuffle(input, n_aligned, n_misaligned, wrong_examples_file):
 
         if total_size == 0:
             raise Exception("The input file {} is empty".format(input.name))
-        elif not wrong_examples_file and  total_size < max(n_aligned, n_misaligned):
-            raise Exception("Aborting... The input file {} has less lines than required by the numbers of good ({}) and wrong ({}) examples. Total lines required: {}".format(input.name, n_aligned, n_misaligned, n_aligned + n_misaligned))
+        elif not wrong_examples_file and total_size < max(n_aligned, n_misaligned):
+            raise Exception(
+                "Aborting... The input file {} has less lines than required by the numbers of good ({}) and wrong ({}) examples. Total lines required: {}".format(
+                    input.name, n_aligned, n_misaligned, n_aligned + n_misaligned))
 
         try:
-            length_ratio = (ssource * 1.0)/(starget * 1.0) # It was (starget * 1.0)/(ssource * 1.0)
+            length_ratio = (ssource * 1.0) / (starget * 1.0)  # It was (starget * 1.0)/(ssource * 1.0)
         except ZeroDivisionError:
             length_ratio = math.nan
 
@@ -163,7 +169,8 @@ def shuffle(input, n_aligned, n_misaligned, wrong_examples_file):
         # (3) Get wrong sentences
         if wrong_examples_file:
             # The file is already shuffled
-            logging.info("Using wrong examples from file {} instead the synthetic method".format(wrong_examples_file.name))
+            logging.info(
+                "Using wrong examples from file {} instead the synthetic method".format(wrong_examples_file.name))
 
             count = 0
             for i in wrong_examples_file:
@@ -199,47 +206,49 @@ def shuffle(input, n_aligned, n_misaligned, wrong_examples_file):
 
     return total_size, length_ratio, good_sentences, wrong_sentences
 
+
 # Calculate precision, recall and accuracy over the 0.0,1.0,0.1 histogram of
 # good and  wrong alignments
 def precision_recall(hgood, hwrong):
     precision = []
-    recall    = []
-    accuracy  = []
+    recall = []
+    accuracy = []
     total = sum(hgood) + sum(hwrong)
 
     for i in range(len(hgood)):
-        tp = sum(hgood[i:])   # true positives
+        tp = sum(hgood[i:])  # true positives
         fp = sum(hwrong[i:])  # false positives
-        fn = sum(hgood[:i])   # false negatives
+        fn = sum(hgood[:i])  # false negatives
         tn = sum(hwrong[:i])  # true negatives
         try:
-            precision.append(tp*1.0/(tp+fp))     # precision = tp/(tp+fp)
+            precision.append(tp * 1.0 / (tp + fp))  # precision = tp/(tp+fp)
         except ZeroDivisionError:
             precision.append(math.nan)
         try:
-            recall.append(tp*1.0/(tp+fn))        # recall = tp/(tp+fn)
+            recall.append(tp * 1.0 / (tp + fn))  # recall = tp/(tp+fn)
         except ZeroDivisionError:
             recall.append(math.nan)
         try:
-            accuracy.append((tp+tn)*1.0/total)   # accuracy = (tp+tn) / total
+            accuracy.append((tp + tn) * 1.0 / total)  # accuracy = (tp+tn) / total
         except ZeroDivisionError:
             accuracy.append(math.nan)
 
     return precision, recall, accuracy
 
 
-def repr_right(numeric_list, numeric_fmt = "{:1.7f}"):
+def repr_right(numeric_list, numeric_fmt="{:1.7f}"):
     result_str = ["["]
     for i in range(len(numeric_list)):
         result_str.append(numeric_fmt.format(numeric_list[i]))
-        if i < (len(numeric_list)-1):
+        if i < (len(numeric_list) - 1):
             result_str.append(", ")
         else:
             result_str.append("]")
     return "".join(result_str)
 
+
 # Write YAML with the training parameters and quality estimates
-def write_metadata(myargs, length_ratio, hgood, hwrong, lm_stats:DualLMStats):
+def write_metadata(myargs, length_ratio, hgood, hwrong, lm_stats: DualLMStats):
     out = myargs.metadata
 
     precision, recall, accuracy = precision_recall(hgood, hwrong)
@@ -271,7 +280,7 @@ def write_metadata(myargs, length_ratio, hgood, hwrong, lm_stats:DualLMStats):
         out.write("source_lm: {}\n".format(os.path.abspath(myargs.lm_file_sl)))
         out.write("target_lm: {}\n".format(os.path.abspath(myargs.lm_file_tl)))
         out.write("lm_type: {}\n".format(str(LMType.CHARACTER)))
-        out.write("clean_mean_perp: {}\n".format(lm_stats.clean_mean) )
-        out.write("clean_stddev_perp: {}\n".format(lm_stats.clean_stddev) )
-        out.write("noisy_mean_perp: {}\n".format(lm_stats.noisy_mean) )
-        out.write("noisy_stddev_perp: {}\n".format(lm_stats.noisy_stddev) )
+        out.write("clean_mean_perp: {}\n".format(lm_stats.clean_mean))
+        out.write("clean_stddev_perp: {}\n".format(lm_stats.clean_stddev))
+        out.write("noisy_mean_perp: {}\n".format(lm_stats.noisy_mean))
+        out.write("noisy_stddev_perp: {}\n".format(lm_stats.noisy_stddev))

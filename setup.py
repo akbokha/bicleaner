@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 with open("requirements.txt") as rf:
     requirements = rf.read().splitlines()
-    
+
 setuptools.setup(
     name="bicleaner",
     version="0.11.9",
@@ -37,12 +37,12 @@ setuptools.setup(
         "Prompsit Language Engineering": "http://www.prompsit.com",
         "Bicrawler & Bicleaner": "https://bicrawler.com",
         "Paracrawl": "https://paracrawl.eu/"
-         },
+    },
     scripts=[
-         "scripts/bicleaner-classify",
-         "scripts/bicleaner-train",
-         "scripts/bicleaner-classify-lite",
-         "scripts/bicleaner-train-lite",
-         "scripts/bicleaner-hardrules"
-         ]     
+        "scripts/bicleaner-classify",
+        "scripts/bicleaner-train",
+        "scripts/bicleaner-classify-lite",
+        "scripts/bicleaner-train-lite",
+        "scripts/bicleaner-hardrules"
+    ]
 )
