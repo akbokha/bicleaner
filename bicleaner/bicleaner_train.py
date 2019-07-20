@@ -74,6 +74,14 @@ def initialization():
     groupO.add_argument('--wrong_examples_file', type=argparse.FileType('r'), default=None, help="File with wrong examples extracted to replace the synthetic examples from method used by default")
     groupO.add_argument('--features_version', type=check_positive, default=FEATURES_VERSION , help="Version of the features")
 
+    # for dcce scoring
+    groupO.add_argument('--dcce_scores_file', type=argparse.FileType('r'), default=None, help="File with wrong examples extracted to replace the synthetic examples from method used by default")
+
+    # for ced scoring
+    groupO.add_argument('--ced_source_lang_scores_file', type=argparse.FileType('r'), default=None, help="File with wrong examples extracted to replace the synthetic examples from method used by default")
+    groupO.add_argument('--ced_target_lang_scores_file', type=argparse.FileType('r'), default=None,
+                        help="File with wrong examples extracted to replace the synthetic examples from method used by default")
+
     #For LM filtering
     groupO.add_argument('--noisy_examples_file_sl', type=str, help="File with noisy text in the SL. These are used to estimate the perplexity of noisy text.")
     groupO.add_argument('--noisy_examples_file_tl', type=str, help="File with noisy text in the TL. These are used to estimate the perplexity of noisy text.")

@@ -305,6 +305,14 @@ def feature_character_measurements(sentence):
     res.append(logistic(x, 30, 0.4))
     
     return res
+
+
+def feature_dcce_score(srcsen, trgsen):
+    return None
+
+
+def feature_ced_score(sentence, code, cut_off_value):
+    return None
     
 # Main feature function: uses program options to return a suitable set of
 # features at the output
