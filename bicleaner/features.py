@@ -3,6 +3,7 @@
 import logging
 import math
 import re
+import sys
 import string
 import subprocess
 import tempfile
@@ -336,8 +337,7 @@ def feature_dcce_score(srcsen, trgsen, model_src_trg, model_trg_src, sv_src_trg,
     trg_sen_file.seek(0)
 
     src_trg_result = subprocess.run(
-        ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg]
-    ).stdout.decode('utf-8')
+        ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg], stdout=subprocess.PIPE).stdout.decode('utf-8')
     trg_src_result = subprocess.run(
         ['./scripts/dcce_scoring.sh', model_trg_src, src_sen_file.name, trg_sen_file.name, sv_trg_src, tv_trg_src]
     ).stdout.decode('utf-8')
