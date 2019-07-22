@@ -4,6 +4,8 @@ import logging
 import math
 import re
 import string
+import subprocess
+import tempfile
 
 import pycld2
 import regex
@@ -324,12 +326,35 @@ def feature_character_measurements(sentence):
     return res
 
 
-def feature_dcce_score(srcsen, trgsen):
-    return None
+def feature_dcce_score(srcsen, trgsen, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src):
+    src_sen_file = tempfile.NamedTemporaryFile()
+    trg_sen_file = tempfile.NamedTemporaryFile()
+
+    try:
+        src_sen_file.write(srcsen)
+        src_sen_file.seek(0)
+        trg_sen_file.write(trgsen)
+        trg_sen_file.seek(0)
+
+        src_trg_result = subprocess.run(
+            ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg]
+        ).stdout.decode('utf-8')
+        trg_src_result = subprocess.run(
+            ['./scripts/dcce_scoring.sh', model_trg_src, src_sen_file.name, trg_sen_file.name, sv_trg_src, tv_trg_src]
+        ).stdout.decode('utf-8')
+
+        hA, hB = abs(float(src_trg_result)), abs(float(trg_src_result))
+        return math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
+    except Exception as e:
+        print('DCCE scoring failed: {}'.format(str(e)))
+        return 0.0
+    finally:
+        src_sen_file.close()
+        trg_sen_file.close()
 
 
-def feature_ced_score(sentence, code, cut_off_value):
-    return None
+def feature_ced_score(sen, lang, model_id, model_nd, cut_off_value):
+    return 0.0
 
 
 # Main feature function: uses program options to return a suitable set of
@@ -402,5 +427,20 @@ def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args):
         # Capitalized letter preservation
         features.extend(feature_capitalized_preservation(left_sentence_orig_tok, right_sentence_orig_tok))
         features.extend(feature_capitalized_preservation(left_sentence_orig_tok, right_sentence_orig_tok))
+
+    if args.dcce_model_src_trg and args.dcce_model_trg_src and\
+            args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
+            args.dcce_src_vocab_trg_src and args.dcce_trg_vocab_trg_src:
+        features.append(feature_dcce_score(srcsen, trgsen, args.dcce_model_src_trg, args.dcce_model_trg_src,
+                                           args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
+                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src))
+
+    # if args.ced_src_model_id and args.ced_src_model_nd:
+    #     features.append(
+    #         feature_ced_score(srcsen, lang1, args.ced_src_model_id, args.ced_src_model_id, args.cut_off_value))
+    #
+    # if args.ced_trg_model_id and args.ced_trg_model_nd:
+    #     features.append(
+    #         feature_ced_score(trgsen, lang2, args.ced_trg_model_id, args.ced_trg_model_id, args.cut_off_value))
 
     return features

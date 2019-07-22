@@ -88,15 +88,30 @@ def initialization():
                         help="Version of the features")
 
     # for dcce scoring
-    groupO.add_argument('--dcce_scores_file', type=argparse.FileType('r'), default=None,
-                        help="File with wrong examples extracted to replace the synthetic examples from method used by default")
+    groupO.add_argument('--dcce_model_src_trg', default=None,
+                        help="Translation model (src-trg) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_model_trg_src', default=None,
+                        help="Translation model (trg-src) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_src_vocab_src_trg', default=None,
+                        help="Vocab (src-side) of MT model (src-trg) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_trg_vocab_src_trg', default=None,
+                        help="Vocab (trg-side)of MT model (src-trg) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_src_vocab_trg_src', default=None,
+                        help="Vocab (src-side) of MT model (trg-src) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_trg_vocab_trg_src', default=None,
+                        help="Vocab (trg-side) of MT model (trg-src) used for dual-conditional cross-entropy scoring")
 
     # for ced scoring
-    groupO.add_argument('--ced_source_lang_scores_file', type=argparse.FileType('r'), default=None,
-                        help="File with wrong examples extracted to replace the synthetic examples from method used by default")
-    groupO.add_argument('--ced_target_lang_scores_file', type=argparse.FileType('r'), default=None,
-                        help="File with wrong examples extracted to replace the synthetic examples from method used by default")
-
+    groupO.add_argument('--ced_src_model_id', default=None,
+                        help="In-domain language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_src_model_nd', default=None,
+                        help="Non-domain specific language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_trg_model_id', default=None,
+                        help="In-domain language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_trg_model_nd', default=None,
+                        help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_cut_off_value', type=float, default=0.0,
+                        help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
     # For LM filtering
     groupO.add_argument('--noisy_examples_file_sl', type=str,
                         help="File with noisy text in the SL. These are used to estimate the perplexity of noisy text.")
