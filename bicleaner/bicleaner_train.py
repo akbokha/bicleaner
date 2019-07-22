@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import sys
+import subprocess
 from heapq import heappush, heappop
 from multiprocessing import Queue, Process, cpu_count
 from tempfile import TemporaryFile, NamedTemporaryFile
@@ -335,6 +336,38 @@ def map_process(input, block_size, jobs_queue, label, first_block=0):
     return nblock
 
 
+def calculate_dcce_score(input, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src):
+    src_sentences = NamedTemporaryFile(mode="w+t", delete=True, encoding='utf-8')
+    trg_sentences = NamedTemporaryFile(mode="w+t", delete=True, encoding='utf-8')
+
+    dcce_scores = dict()
+
+    with open(input.name) as input_f:
+        input_f.seek(0)
+        for line in input_f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) >= 2:
+                src_sentences.write(parts[0])
+                trg_sentences.write(parts[1])
+
+    src_sentences.seek(0)
+    trg_sentences.seek(0)
+
+    src_trg_result = subprocess.run(
+        ['./scripts/dcce_scoring_dict.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg, '0'],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+    trg_src_result = subprocess.run(
+        ['./scripts/dcce_scoring_dict.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, '0'],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    for line in src_trg_result.splitlines():
+        print(line)
+
+    for line in trg_src_result.splitlines():
+        print(line)
+
+    return dcce_scores
+
 # Main loop of the program
 def perform_training(args):
     time_start = default_timer()
@@ -364,8 +397,31 @@ def perform_training(args):
         total_size, length_ratio, good_sentences, wrong_sentences = shuffle(args.input,
                                                                             args.good_examples + args.good_test_examples,
                                                                             args.wrong_examples + args.wrong_test_examples,
-                                                                            args.wrong_examples_file)
-    os.remove(input.name)
+                                                                           args.wrong_examples_file)
+
+    dcce_scores = None
+
+    if args.dcce_model_src_trg and args.dcce_model_trg_src and\
+            args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
+            args.dcce_src_vocab_trg_src and args.dcce_trg_vocab_trg_src:
+
+        dcce_scores = calculate_dcce_score(input, args.dcce_model_src_trg, args.dcce_model_trg_src,
+                                           args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
+                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src)
+    #
+    # os.remove(input.name)
+    #
+    # src_trg_result = subprocess.run(
+    #     ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg],
+    #     stdout=subprocess.PIPE).stdout.decode('utf-8')
+    # trg_src_result = subprocess.run(
+    #     ['./scripts/dcce_scoring.sh', model_trg_src, src_sen_file.name, trg_sen_file.name, sv_trg_src, tv_trg_src],
+    #     stdout=subprocess.PIPE).stdout.decode('utf-8')
+    #
+    # hA, hB = abs(float(src_trg_result)), abs(float(trg_src_result))
+    # return math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
+
+    sys.exit(1)
 
     args.length_ratio = length_ratio
 
