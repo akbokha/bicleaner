@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import subprocess
+import math
 from heapq import heappush, heappop
 from multiprocessing import Queue, Process, cpu_count
 from tempfile import TemporaryFile, NamedTemporaryFile
@@ -340,6 +341,7 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     src_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
     trg_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
 
+    sentences = list()
     dcce_scores = dict()
 
     with open(input_file.name) as input_f:
@@ -351,9 +353,7 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
                 # print('writing to tempfiles')
                 src_sentences.write(parts[0] + '\n')
                 trg_sentences.write(parts[1] + '\n')
-    
-    # print('src position: ', src_sentences.tell())
-    # print('trg position: ', trg_sentences.tell())
+                sentences.append((parts[0], parts[1]))
    
     src_sentences.seek(0)
     trg_sentences.seek(0)
@@ -368,17 +368,22 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     trg_src_result = subprocess.run(
         ['./scripts/dcce_scoring_dict.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, '0'],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
-    
-    # print(src_trg_result)
-    # print(trg_src_result)
 
-    print('src_trg_result len: ', len(src_trg_result.splitlines()))
-    print('trg_src_result len: ', len(trg_src_result.splitlines()))
+    src_trg_scores = src_trg_result.splitlines()
+    trg_src_scores = trg_src_result.splitlines()
+
+    assert len(src_trg_scores) == len(trg_src_scores) == len(sentences)
+
+    for sentence_pair, src_trg_score, trg_src_score in zip(sentences, src_trg_scores, trg_src_scores):
+        hA, hB = abs(float(src_trg_score)), abs(float(trg_src_score))
+        dcce_score = math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
+        dcce_scores[sentence_pair] = dcce_score
     
     os.remove(src_sentences.name)
     os.remove(trg_sentences.name)
     
     return dcce_scores
+
 
 # Main loop of the program
 def perform_training(args):
@@ -422,16 +427,8 @@ def perform_training(args):
                                            args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src)
     
     os.remove(input.name)
-    #
-    # src_trg_result = subprocess.run(
-    #     ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg],
-    #     stdout=subprocess.PIPE).stdout.decode('utf-8')
-    # trg_src_result = subprocess.run(
-    #     ['./scripts/dcce_scoring.sh', model_trg_src, src_sen_file.name, trg_sen_file.name, sv_trg_src, tv_trg_src],
-    #     stdout=subprocess.PIPE).stdout.decode('utf-8')
-    #
-    # hA, hB = abs(float(src_trg_result)), abs(float(trg_src_result))
-    # return math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
+
+    print(dcce_scores)
 
     sys.exit(1)
 
