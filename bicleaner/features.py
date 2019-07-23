@@ -446,7 +446,7 @@ def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=No
 
     if dcce_scores:
         try:
-            features.append(float(dcce_scores[(srcsen, trgsen)]))
+            features.append(float(dcce_scores[(srcsen.rstrip('\n'), trgsen.rstrip('\n'))]))
         except KeyError:
             print('Could not find dcce score for: {} - {}'.format(srcsen, trgsen))
             features.append(0.0)
