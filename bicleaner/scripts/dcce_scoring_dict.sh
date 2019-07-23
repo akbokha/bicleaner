@@ -16,7 +16,7 @@ gpus=$6
 $marian_scorer \
     -m $model \
     -v $src_vocab $trg_vocab \
-    -t $src_sentence $trg_sentence \
+    -t $src_sentences $trg_sentences \
     --devices "$gpus" \
     --quiet-translation \
     -n
