@@ -327,52 +327,6 @@ def feature_character_measurements(sentence):
     return res
 
 
-def feature_dcce_score(srcsen, trgsen, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src):
-    src_sen_file = tempfile.NamedTemporaryFile(mode='w+t', encoding='utf-8')
-    trg_sen_file = tempfile.NamedTemporaryFile(mode='w+t', encoding='utf-8')
-
-    src_sen_file.write(srcsen)
-    src_sen_file.seek(0)
-    trg_sen_file.write(trgsen)
-    trg_sen_file.seek(0)
-
-    src_trg_result = subprocess.run(
-        ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg],
-        stdout=subprocess.PIPE).stdout.decode('utf-8')
-    trg_src_result = subprocess.run(
-        ['./scripts/dcce_scoring.sh', model_trg_src, src_sen_file.name, trg_sen_file.name, sv_trg_src, tv_trg_src],
-        stdout=subprocess.PIPE).stdout.decode('utf-8')
-
-    hA, hB = abs(float(src_trg_result)), abs(float(trg_src_result))
-    return math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
-
-    # try:
-    #     src_sen_file.write(srcsen)
-    #     src_sen_file.seek(0)
-    #     trg_sen_file.write(trgsen)
-    #     trg_sen_file.seek(0)
-    #
-    #     src_trg_result = subprocess.run(
-    #         ['./scripts/dcce_scoring.sh', model_src_trg, src_sen_file.name, trg_sen_file.name, sv_src_trg, tv_src_trg]
-    #     ).stdout.decode('utf-8')
-    #     trg_src_result = subprocess.run(
-    #         ['./scripts/dcce_scoring.sh', model_trg_src, src_sen_file.name, trg_sen_file.name, sv_trg_src, tv_trg_src]
-    #     ).stdout.decode('utf-8')
-    #
-    #     hA, hB = abs(float(src_trg_result)), abs(float(trg_src_result))
-    #     return math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
-    # except Exception as e:
-    #     print('DCCE scoring failed: {}'.format(str(e)))
-    #     return 0.0
-    # finally:
-    #     src_sen_file.close()
-    #     trg_sen_file.close()
-
-
-def feature_ced_score(sen, lang, model_id, model_nd, cut_off_value):
-    return 0.0
-
-
 # Main feature function: uses program options to return a suitable set of
 # features at the output
 def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=None):
@@ -447,8 +401,7 @@ def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=No
     if dcce_scores:
         try:
             features.append(float(dcce_scores[(srcsen.rstrip('\n'), trgsen.rstrip('\n'))]))
-        except KeyError:
-            print('Could not find dcce score for: {} - {}'.format(srcsen, trgsen))
+        except KeyError:  # dcce score for wrong examples (i.e. shuffled src - target sentence pairs)
             features.append(0.0)
 
     return features
