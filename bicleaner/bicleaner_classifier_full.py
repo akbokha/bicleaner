@@ -2,7 +2,9 @@
 
 import logging
 import sys
+import math
 import traceback
+import subprocess
 
 import numpy as np
 import yaml
@@ -78,6 +80,34 @@ def initialization():
                         help="Threshold for language model fluency scoring. All TUs whose LM fluency score falls below the threshold will are removed (classifier score set to 0), unless the option --keep_lm_result set.")
     groupO.add_argument('--keep_lm_result', action='store_true',
                         help="Add an additional column to the results with the language model fluency score and do not discard any TU based on that score.")
+    groupO.add_argument('--gpu', default='0',
+                        help="The GPUs (device-ids) that should be used for dcce-scoring and ced-scoring")
+
+    # for dcce scoring
+    groupO.add_argument('--dcce_model_src_trg', default=None,
+                        help="Translation model (src-trg) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_model_trg_src', default=None,
+                        help="Translation model (trg-src) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_src_vocab_src_trg', default=None,
+                        help="Vocab (src-side) of MT model (src-trg) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_trg_vocab_src_trg', default=None,
+                        help="Vocab (trg-side)of MT model (src-trg) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_src_vocab_trg_src', default=None,
+                        help="Vocab (src-side) of MT model (trg-src) used for dual-conditional cross-entropy scoring")
+    groupO.add_argument('--dcce_trg_vocab_trg_src', default=None,
+                        help="Vocab (trg-side) of MT model (trg-src) used for dual-conditional cross-entropy scoring")
+
+    # for ced scoring
+    groupO.add_argument('--ced_src_model_id', default=None,
+                        help="In-domain language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_src_model_nd', default=None,
+                        help="Non-domain specific language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_trg_model_id', default=None,
+                        help="In-domain language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_trg_model_nd', default=None,
+                        help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_cut_off_value', type=float, default=0.0,
+                        help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
 
     # Logging group
     groupL = parser.add_argument_group('Logging')
@@ -181,8 +211,7 @@ def initialization():
 
 # def profile_classifier_process(i, jobs_queue, output_queue,args):
 #    cProfile.runctx('classifier_process(i, jobs_queue, output_queue, args)', globals(), locals(), 'profiling-{}.out'.format(i))
-
-def classifier_process(i, jobs_queue, output_queue, args):
+def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None):
     if args.source_tokeniser_path:
         source_tokeniser = ToolWrapper(args.source_tokeniser_path.split(' '))
     else:
@@ -234,7 +263,7 @@ def classifier_process(i, jobs_queue, output_queue, args):
                             valid_sentences.append(False)
                         else:
                             features = feature_extract(sl_sentence, tl_sentence, source_tokeniser, target_tokeniser,
-                                                       args)
+                                                       args, dcce_scores)
                             feats.append([float(v) for v in features])
                             lm_scores.append(lm_score)
                             valid_sentences.append(True)
@@ -351,6 +380,57 @@ def reduce_process(output_queue, args):
         args.discarded_tus.close()
 
 
+def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src,
+                         gpus):
+    src_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
+    trg_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
+
+    sentences = list()
+    dcce_scores = dict()
+
+    with open(input_file.name) as input_f:
+        input_f.seek(0)
+        for line in input_f:
+            # print('reading input')
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) >= 2:
+                # print('writing to tempfiles')
+                src_sentences.write(parts[0] + '\n')
+                trg_sentences.write(parts[1] + '\n')
+                sentences.append((parts[0], parts[1]))
+
+    src_sentences.seek(0)
+    trg_sentences.seek(0)
+
+    src_trg_result = subprocess.run(
+        ['./scripts/dcce_scoring.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg,
+         gpus],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    src_sentences.seek(0)
+    trg_sentences.seek(0)
+
+    trg_src_result = subprocess.run(
+        ['./scripts/dcce_scoring.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src,
+         gpus],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    src_trg_scores = src_trg_result.splitlines()
+    trg_src_scores = trg_src_result.splitlines()
+
+    assert len(src_trg_scores) == len(trg_src_scores) == len(sentences)
+
+    for sentence_pair, src_trg_score, trg_src_score in zip(sentences, src_trg_scores, trg_src_scores):
+        hA, hB = abs(float(src_trg_score)), abs(float(trg_src_score))
+        dcce_score = math.exp(-1.0 * (abs(hA - hB) + 0.5 * (hA + hB)))
+        dcce_scores[sentence_pair] = dcce_score
+
+    os.remove(src_sentences.name)
+    os.remove(trg_sentences.name)
+
+    return dcce_scores
+
+
 # Filtering input texts
 def perform_classification(args):
     time_start = default_timer()
@@ -363,6 +443,16 @@ def perform_classification(args):
     output_queue = Queue(maxsize=maxsize)
     worker_count = process_count
 
+    dcce_scores = None
+
+    if args.dcce_model_src_trg and args.dcce_model_trg_src and\
+            args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
+            args.dcce_src_vocab_trg_src and args.dcce_trg_vocab_trg_src:
+
+        dcce_scores = calculate_dcce_score(args.input, args.dcce_model_src_trg, args.dcce_model_trg_src,
+                                           args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
+                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
+
     # Start reducer
     reduce = Process(target=reduce_process,
                      args=(output_queue, args))
@@ -373,7 +463,7 @@ def perform_classification(args):
     workers = []
     for i in range(worker_count):
         filter = Process(target=classifier_process,  # profile_classifier_process
-                         args=(i, jobs_queue, output_queue, args))
+                         args=(i, jobs_queue, output_queue, args, dcce_scores))
         filter.daemon = True  # dies with the parent process
 
         filter.start()
