@@ -375,7 +375,7 @@ def feature_ced_score(sen, lang, model_id, model_nd, cut_off_value):
 
 # Main feature function: uses program options to return a suitable set of
 # features at the output
-def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args):
+def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=None):
     length_ratio = args.length_ratio
     dict12 = args.dict_sl_tl
     dict21 = args.dict_tl_sl
@@ -444,19 +444,11 @@ def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args):
         features.extend(feature_capitalized_preservation(left_sentence_orig_tok, right_sentence_orig_tok))
         features.extend(feature_capitalized_preservation(left_sentence_orig_tok, right_sentence_orig_tok))
 
-    if args.dcce_model_src_trg and args.dcce_model_trg_src and\
-            args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
-            args.dcce_src_vocab_trg_src and args.dcce_trg_vocab_trg_src:
-        features.append(feature_dcce_score(srcsen, trgsen, args.dcce_model_src_trg, args.dcce_model_trg_src,
-                                           args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
-                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src))
-
-    # if args.ced_src_model_id and args.ced_src_model_nd:
-    #     features.append(
-    #         feature_ced_score(srcsen, lang1, args.ced_src_model_id, args.ced_src_model_id, args.cut_off_value))
-    #
-    # if args.ced_trg_model_id and args.ced_trg_model_nd:
-    #     features.append(
-    #         feature_ced_score(trgsen, lang2, args.ced_trg_model_id, args.ced_trg_model_id, args.cut_off_value))
+    if dcce_scores:
+        try:
+            features.append(float(dcce_scores[(srcsen, trgsen)]))
+        except KeyError:
+            print('Could not find dcce score for: {} - {}'.format(srcsen, trgsen))
+            features.append(0.0)
 
     return features

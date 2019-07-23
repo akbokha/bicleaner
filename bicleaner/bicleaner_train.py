@@ -288,7 +288,7 @@ def worker_process(i, jobs_queue, output_queue, args):
                     srcsen, trgsen = i.split("\t")[:2]
                     trgsen = trgsen.strip()
                     #                    print(str(srcsen) + " --- " + str(trgsen))
-                    features = feature_extract(srcsen, trgsen, source_tokeniser, target_tokeniser, args)
+                    features = feature_extract(srcsen, trgsen, source_tokeniser, target_tokeniser, args, dcce_scores)
 
                     for j in features:
                         fileout.write("{}".format(j))

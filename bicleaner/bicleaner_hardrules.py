@@ -50,9 +50,6 @@ def initialization():
     parser.add_argument('--annotated_output', type=argparse.FileType('wt'),
                         help="Annotated output of the classification")
 
-    parser.add_argument('--new_hardrules', help='use the new hardrules on top of the existing hardrules in v1.1',
-                        action='store_true')
-
     groupM = parser.add_argument_group('Mandatory')
     groupM.add_argument("-s", "--source_lang", type=str, required=True, help="Source language (SL) of the input")
     groupM.add_argument("-t", "--target_lang", type=str, required=True, help="Target language (TL) of the input")
@@ -63,6 +60,9 @@ def initialization():
     groupO.add_argument('-b', '--block_size', type=int, default=10000, help="Sentence pairs per block")
     groupO.add_argument('-p', '--processes', type=int, default=max(1, cpu_count() - 1),
                         help="Number of processes to use")
+
+    groupO.add_argument('--new_hardrules', help='use the new hardrules on top of the existing hardrules in v1.1',
+                        action='store_true', dest='new_hardrules')
 
     args = parser.parse_args()
 
@@ -202,6 +202,11 @@ def c_no_escaped_unicode(sentence):
 
 
 def wrong_tu(left, right, args):
+    try:
+        args.new_hardrules = args.new_hardrules
+    except AttributeError:
+        args.new_hardrules = False
+
     if len(left) >= 1024:
         return "len(left) >= 1024"
     if len(right) >= 1024:
