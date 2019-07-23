@@ -361,14 +361,14 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     trg_sentences.seek(0)
 
     src_trg_result = subprocess.run(
-        ['./scripts/dcce_scoring_dict.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg, gpus],
+        ['./scripts/dcce_scoring.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg, gpus],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
     
     src_sentences.seek(0)
     trg_sentences.seek(0)
     
     trg_src_result = subprocess.run(
-        ['./scripts/dcce_scoring_dict.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, gpus],
+        ['./scripts/dcce_scoring.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, gpus],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
 
     src_trg_scores = src_trg_result.splitlines()
