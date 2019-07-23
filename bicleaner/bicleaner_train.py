@@ -88,6 +88,8 @@ def initialization():
                         help="File with wrong examples extracted to replace the synthetic examples from method used by default")
     groupO.add_argument('--features_version', type=check_positive, default=FEATURES_VERSION,
                         help="Version of the features")
+    groupO.add_argument('--gpu', default='0',
+                        help="The GPUs (device-ids) that should be used for dcce-scoring and ced-scoring")
 
     # for dcce scoring
     groupO.add_argument('--dcce_model_src_trg', default=None,
@@ -267,7 +269,7 @@ def reduce_process(output_queue, output_file):
 
 
 # Calculates all the features needed for the training
-def worker_process(i, jobs_queue, output_queue, args):
+def worker_process(i, jobs_queue, output_queue, args, dcce_scores=None):
     if args.source_tokeniser_path:
         source_tokeniser = ToolWrapper(args.source_tokeniser_path.split(' '))
     else:
@@ -337,7 +339,7 @@ def map_process(input, block_size, jobs_queue, label, first_block=0):
     return nblock
 
 
-def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src):
+def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src, gpus):
     src_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
     trg_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
 
@@ -359,14 +361,14 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     trg_sentences.seek(0)
 
     src_trg_result = subprocess.run(
-        ['./scripts/dcce_scoring_dict.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg, '0'],
+        ['./scripts/dcce_scoring_dict.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg, gpus],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
     
     src_sentences.seek(0)
     trg_sentences.seek(0)
     
     trg_src_result = subprocess.run(
-        ['./scripts/dcce_scoring_dict.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, '0'],
+        ['./scripts/dcce_scoring_dict.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, gpus],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
 
     src_trg_scores = src_trg_result.splitlines()
@@ -424,7 +426,7 @@ def perform_training(args):
 
         dcce_scores = calculate_dcce_score(args.input, args.dcce_model_src_trg, args.dcce_model_trg_src,
                                            args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
-                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src)
+                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
     
     os.remove(input.name)
 
@@ -445,7 +447,7 @@ def perform_training(args):
     workers = []
     for i in range(worker_count):
         worker = Process(target=worker_process,
-                         args=(i, jobs_queue, output_queue, args))
+                         args=(i, jobs_queue, output_queue, args, dcce_scores))
         worker.daemon = True  # dies with the parent process
         worker.start()
         workers.append(worker)
