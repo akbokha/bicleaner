@@ -428,10 +428,6 @@ def perform_training(args):
     
     os.remove(input.name)
 
-    print(dcce_scores)
-
-    sys.exit(1)
-
     args.length_ratio = length_ratio
 
     # Load dictionaries
