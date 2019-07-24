@@ -329,7 +329,7 @@ def feature_character_measurements(sentence):
 
 # Main feature function: uses program options to return a suitable set of
 # features at the output
-def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=None):
+def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=None, ced_src_scores=None, ced_trg_scores=None):
     length_ratio = args.length_ratio
     dict12 = args.dict_sl_tl
     dict21 = args.dict_tl_sl
@@ -402,6 +402,18 @@ def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=No
         try:
             features.append(float(dcce_scores[(srcsen.rstrip('\n'), trgsen.rstrip('\n'))]))
         except KeyError:  # dcce score for wrong examples (i.e. shuffled src - target sentence pairs)
+            features.append(0.0)
+
+    if ced_src_scores:
+        try:
+            features.append(float(ced_src_scores[srcsen.rstrip('\n')]))
+        except KeyError:
+            features.append(0.0)
+
+    if ced_trg_scores:
+        try:
+            features.append(float(ced_trg_scores[trgsen.rstrip('\n')]))
+        except KeyError:
             features.append(0.0)
 
     return features

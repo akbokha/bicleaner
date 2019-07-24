@@ -6,6 +6,7 @@ import os
 import sys
 import subprocess
 import math
+import nltk
 from heapq import heappush, heappop
 from multiprocessing import Queue, Process, cpu_count
 from tempfile import TemporaryFile, NamedTemporaryFile
@@ -19,6 +20,8 @@ from sklearn.ensemble import AdaBoostClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.externals import joblib
 from toolwrapper import ToolWrapper
+
+nltk.download('punkt')
 
 # Allows to load modules while inside or outside the package
 
@@ -108,12 +111,20 @@ def initialization():
     # for ced scoring
     groupO.add_argument('--ced_src_model_id', default=None,
                         help="In-domain language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_src_model_id', default=None,
+                        help="Vocab of in-domain language model (src) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_src_model_nd', default=None,
                         help="Non-domain specific language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_src_model_nd', default=None,
+                        help="Vocab of non-domain specific language model (src) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_trg_model_id', default=None,
                         help="In-domain language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_trg_model_id', default=None,
+                        help="Vocab of in-domain language model (trg) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_trg_model_nd', default=None,
                         help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_trg_model_nd', default=None,
+                        help="Vocab of Non-domain specific language model (trg) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_cut_off_value', type=float, default=0.0,
                         help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
     # For LM filtering
@@ -269,7 +280,7 @@ def reduce_process(output_queue, output_file):
 
 
 # Calculates all the features needed for the training
-def worker_process(i, jobs_queue, output_queue, args, dcce_scores=None):
+def worker_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_src_scores=None, ced_trg_scores=None):
     if args.source_tokeniser_path:
         source_tokeniser = ToolWrapper(args.source_tokeniser_path.split(' '))
     else:
@@ -290,7 +301,8 @@ def worker_process(i, jobs_queue, output_queue, args, dcce_scores=None):
                     srcsen, trgsen = i.split("\t")[:2]
                     trgsen = trgsen.strip()
                     #                    print(str(srcsen) + " --- " + str(trgsen))
-                    features = feature_extract(srcsen, trgsen, source_tokeniser, target_tokeniser, args, dcce_scores)
+                    features = feature_extract(srcsen, trgsen, source_tokeniser, target_tokeniser, args,
+                                               dcce_scores, ced_src_scores, ced_trg_scores)
 
                     for j in features:
                         fileout.write("{}".format(j))
@@ -339,7 +351,7 @@ def map_process(input, block_size, jobs_queue, label, first_block=0):
     return nblock
 
 
-def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src, gpus):
+def calculate_dcce_scores(input_file, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src, gpus):
     src_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
     trg_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
 
@@ -356,7 +368,7 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
                 src_sentences.write(parts[0] + '\n')
                 trg_sentences.write(parts[1] + '\n')
                 sentences.append((parts[0], parts[1]))
-   
+
     src_sentences.seek(0)
     trg_sentences.seek(0)
 
@@ -385,6 +397,51 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     os.remove(trg_sentences.name)
     
     return dcce_scores
+
+
+def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_nd, vocab_id, vocab_nd, gpus):
+    sentences_file = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
+    sentences = list()
+    ced_scores = dict()
+
+    sentence_index = 0 if is_source else 1
+
+    with open(input_file.name) as input_f:
+        input_f.seek(0)
+        for line in input_f:
+            # print('reading input')
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) >= 2:
+                # print('writing to tempfiles')
+                sentences_file.write(parts[sentence_index] + '\n')
+                sentences.append(parts[sentence_index])
+
+    sentences_file.seek(0)
+
+    model_id_result = subprocess.run(
+        ['./scripts/ced_scoring.sh', model_id, sentences_file.name, vocab_id, gpus],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    sentences_file.seek(0)
+
+    model_nd_result = subprocess.run(
+        ['./scripts/ced_scoring.sh', model_nd, sentences_file.name, vocab_nd, gpus],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    id_scores = model_id_result.splitlines()
+    nd_scores = model_nd_result.splitlines()
+
+    assert len(id_scores) == len(nd_scores) == len(sentences)
+
+    for sentence, id_score, nd_score in zip(sentences, id_scores, nd_scores):
+        h_diff = (abs(float(id_score)) - abs(float(nd_score))) / len(nltk.word_tokenize(sentence))
+        dom_exp = math.exp(-1.0 * h_diff)
+        dom = min(dom_exp, 1.0)
+        if dom < cut_off_value:
+            dom = 0.0
+        ced_scores[sentence] = dom
+
+    return ced_scores
 
 
 # Main loop of the program
@@ -419,15 +476,27 @@ def perform_training(args):
                                                                            args.wrong_examples_file)
 
     dcce_scores = None
+    ced_src_scores = None
+    ced_trg_scores = None
 
     if args.dcce_model_src_trg and args.dcce_model_trg_src and\
             args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
             args.dcce_src_vocab_trg_src and args.dcce_trg_vocab_trg_src:
 
-        dcce_scores = calculate_dcce_score(args.input, args.dcce_model_src_trg, args.dcce_model_trg_src,
-                                           args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
-                                           args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
-    
+        dcce_scores = calculate_dcce_scores(args.input, args.dcce_model_src_trg, args.dcce_model_trg_src,
+                                            args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
+                                            args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
+
+    if args.ced_src_model_id and args.ced_vocab_src_model_id and args.ced_src_model_nd and args.ced_vocab_src_model_nd:
+        ced_src_scores = calculate_ced_scores(args.input, True, args.ced_cut_off_value,
+                                              args.ced_src_model_id, args.ced_src_model_nd,
+                                              args.ced_vocab_src_model_id, args.ced_vocab_src_model_nd, args.gpu)
+
+    if args.ced_trg_model_id and args.ced_vocab_trg_model_id and args.ced_trg_model_nd and args.ced_vocab_trg_model_nd:
+        ced_trg_scores = calculate_ced_scores(args.input, False, args.ced_cut_off_value,
+                                              args.ced_trg_model_id, args.ced_trg_model_nd,
+                                              args.ced_vocab_trg_model_id, args.ced_vocab_trg_model_nd, args.gpu)
+
     os.remove(input.name)
 
     args.length_ratio = length_ratio
@@ -447,7 +516,7 @@ def perform_training(args):
     workers = []
     for i in range(worker_count):
         worker = Process(target=worker_process,
-                         args=(i, jobs_queue, output_queue, args, dcce_scores))
+                         args=(i, jobs_queue, output_queue, args, dcce_scores, ced_src_scores, ced_trg_scores))
         worker.daemon = True  # dies with the parent process
         worker.start()
         workers.append(worker)
