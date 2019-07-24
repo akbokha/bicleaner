@@ -372,12 +372,16 @@ def calculate_dcce_scores(input_file, model_src_trg, model_trg_src, sv_src_trg, 
     src_sentences.seek(0)
     trg_sentences.seek(0)
 
+    logging.info("DCCE scoring src-trg")
+
     src_trg_result = subprocess.run(
         ['./scripts/dcce_scoring.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg, gpus],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
     
     src_sentences.seek(0)
     trg_sentences.seek(0)
+
+    logging.info("DCCE scoring trg-src")
     
     trg_src_result = subprocess.run(
         ['./scripts/dcce_scoring.sh', model_trg_src, trg_sentences.name, src_sentences.name, sv_trg_src, tv_trg_src, gpus],
@@ -418,11 +422,15 @@ def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_n
 
     sentences_file.seek(0)
 
+    logging.info("CED scoring id-model")
+
     model_id_result = subprocess.run(
         ['./scripts/ced_scoring.sh', model_id, sentences_file.name, vocab_id, gpus],
         stdout=subprocess.PIPE).stdout.decode('utf-8')
 
     sentences_file.seek(0)
+
+    logging.info("CED scoring nd-model")
 
     model_nd_result = subprocess.run(
         ['./scripts/ced_scoring.sh', model_nd, sentences_file.name, vocab_nd, gpus],
