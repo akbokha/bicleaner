@@ -101,12 +101,20 @@ def initialization():
     # for ced scoring
     groupO.add_argument('--ced_src_model_id', default=None,
                         help="In-domain language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_src_model_id', default=None,
+                        help="Vocab of in-domain language model (src) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_src_model_nd', default=None,
                         help="Non-domain specific language model (src) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_src_model_nd', default=None,
+                        help="Vocab of non-domain specific language model (src) used for cross-entropy diff filtering")
     groupO.add_argument('--ced_trg_model_id', default=None,
                         help="In-domain language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_trg_model_id', default=None,
+                        help="Vocab of in-domain language model (trg) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_trg_model_nd', default=None,
                         help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
+    groupO.add_argument('--ced_vocab_trg_model_nd', default=None,
+                        help="Vocab of Non-domain specific language model (trg) used for cross-entropy diff filtering")
     groupO.add_argument('--ced_cut_off_value', type=float, default=0.0,
                         help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
 
@@ -212,7 +220,7 @@ def initialization():
 
 # def profile_classifier_process(i, jobs_queue, output_queue,args):
 #    cProfile.runctx('classifier_process(i, jobs_queue, output_queue, args)', globals(), locals(), 'profiling-{}.out'.format(i))
-def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None):
+def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_src_scores=None, ced_trg_scores=None):
     if args.source_tokeniser_path:
         source_tokeniser = ToolWrapper(args.source_tokeniser_path.split(' '))
     else:
@@ -264,7 +272,7 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None):
                             valid_sentences.append(False)
                         else:
                             features = feature_extract(sl_sentence, tl_sentence, source_tokeniser, target_tokeniser,
-                                                       args, dcce_scores)
+                                                       args, dcce_scores, ced_src_scores, ced_trg_scores)
                             feats.append([float(v) for v in features])
                             lm_scores.append(lm_score)
                             valid_sentences.append(True)
@@ -430,6 +438,56 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     return dcce_scores
 
 
+def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_nd, vocab_id, vocab_nd, gpus):
+    sentences_file = NamedTemporaryFile(mode="w+t", delete=False, encoding='utf-8')
+    sentences = list()
+    ced_scores = dict()
+
+    sentence_index = 2 if is_source else 3
+
+    input_file.seek(0)
+
+    for line in input_file:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 4:
+            sentences_file.write(parts[sentence_index] + '\n')
+            sentences.append(parts[sentence_index])
+
+    input_file.seek(0)
+    sentences_file.seek(0)
+
+    logging.info("CED scoring id-model")
+
+    model_id_result = subprocess.run(
+        ['./scripts/ced_scoring.sh', model_id, sentences_file.name, vocab_id, gpus],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    sentences_file.seek(0)
+
+    logging.info("CED scoring nd-model")
+
+    model_nd_result = subprocess.run(
+        ['./scripts/ced_scoring.sh', model_nd, sentences_file.name, vocab_nd, gpus],
+        stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    id_scores = model_id_result.splitlines()
+    nd_scores = model_nd_result.splitlines()
+
+    assert len(id_scores) == len(nd_scores) == len(sentences)
+
+    for sentence, id_score, nd_score in zip(sentences, id_scores, nd_scores):
+        h_diff = (abs(float(id_score)) - abs(float(nd_score))) / len(nltk.word_tokenize(sentence))
+        dom_exp = math.exp(-1.0 * h_diff)
+        dom = min(dom_exp, 1.0)
+        if dom < cut_off_value:
+            dom = 0.0
+        ced_scores[sentence] = dom
+
+    os.remove(sentences_file.name)
+
+    return ced_scores
+
+
 # Filtering input texts
 def perform_classification(args):
     time_start = default_timer()
@@ -443,6 +501,8 @@ def perform_classification(args):
     worker_count = process_count
 
     dcce_scores = None
+    ced_src_scores = None
+    ced_trg_scores = None
 
     if args.dcce_model_src_trg and args.dcce_model_trg_src and\
             args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
@@ -451,6 +511,16 @@ def perform_classification(args):
         dcce_scores = calculate_dcce_score(args.input, args.dcce_model_src_trg, args.dcce_model_trg_src,
                                            args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
                                            args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
+
+    if args.ced_src_model_id and args.ced_vocab_src_model_id and args.ced_src_model_nd and args.ced_vocab_src_model_nd:
+        ced_src_scores = calculate_ced_scores(args.input, True, args.ced_cut_off_value,
+                                              args.ced_src_model_id, args.ced_src_model_nd,
+                                              args.ced_vocab_src_model_id, args.ced_vocab_src_model_nd, args.gpu)
+
+    if args.ced_trg_model_id and args.ced_vocab_trg_model_id and args.ced_trg_model_nd and args.ced_vocab_trg_model_nd:
+        ced_trg_scores = calculate_ced_scores(args.input, False, args.ced_cut_off_value,
+                                              args.ced_trg_model_id, args.ced_trg_model_nd,
+                                              args.ced_vocab_trg_model_id, args.ced_vocab_trg_model_nd, args.gpu)
 
     # Start reducer
     reduce = Process(target=reduce_process,
@@ -462,7 +532,7 @@ def perform_classification(args):
     workers = []
     for i in range(worker_count):
         filter = Process(target=classifier_process,  # profile_classifier_process
-                         args=(i, jobs_queue, output_queue, args, dcce_scores))
+                         args=(i, jobs_queue, output_queue, args, dcce_scores, ced_src_scores, ced_trg_scores))
         filter.daemon = True  # dies with the parent process
 
         filter.start()

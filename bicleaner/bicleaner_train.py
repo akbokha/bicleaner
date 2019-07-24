@@ -116,7 +116,7 @@ def initialization():
     groupO.add_argument('--ced_src_model_nd', default=None,
                         help="Non-domain specific language model (src) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_vocab_src_model_nd', default=None,
-                        help="Vocab of non-domain specific language model (src) used for cross-entropy difference filtering")
+                        help="Vocab of non-domain specific language model (src) used for cross-entropy diff filtering")
     groupO.add_argument('--ced_trg_model_id', default=None,
                         help="In-domain language model (trg) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_vocab_trg_model_id', default=None,
@@ -124,9 +124,10 @@ def initialization():
     groupO.add_argument('--ced_trg_model_nd', default=None,
                         help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_vocab_trg_model_nd', default=None,
-                        help="Vocab of Non-domain specific language model (trg) used for cross-entropy difference filtering")
+                        help="Vocab of Non-domain specific language model (trg) used for cross-entropy diff filtering")
     groupO.add_argument('--ced_cut_off_value', type=float, default=0.0,
                         help="Non-domain specific language model (trg) used for cross-entropy difference filtering")
+
     # For LM filtering
     groupO.add_argument('--noisy_examples_file_sl', type=str,
                         help="File with noisy text in the SL. These are used to estimate the perplexity of noisy text.")

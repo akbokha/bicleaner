@@ -329,7 +329,8 @@ def feature_character_measurements(sentence):
 
 # Main feature function: uses program options to return a suitable set of
 # features at the output
-def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args, dcce_scores=None, ced_src_scores=None, ced_trg_scores=None):
+def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args,
+                    dcce_scores=None, ced_src_scores=None, ced_trg_scores=None):
     length_ratio = args.length_ratio
     dict12 = args.dict_sl_tl
     dict21 = args.dict_tl_sl
