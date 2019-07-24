@@ -389,11 +389,11 @@ def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, t
     sentences = list()
     dcce_scores = dict()
 
+    input_file.seek(0)
+
     for line in input_file:
-        # print('reading input: ', line)
         parts = line.rstrip("\n").split("\t")
         if len(parts) >= 4:
-            # print('writing to tempfiles', parts[2], ' - ', parts[3])
             src_sentences.write(parts[2] + '\n')
             trg_sentences.write(parts[3] + '\n')
             sentences.append((parts[2], parts[3]))
