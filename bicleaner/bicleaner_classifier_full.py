@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import os
 import sys
 import math
 import traceback
@@ -382,31 +383,29 @@ def reduce_process(output_queue, args):
 
 def calculate_dcce_score(input_file, model_src_trg, model_trg_src, sv_src_trg, tv_src_trg, sv_trg_src, tv_trg_src,
                          gpus):
-    src_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
-    trg_sentences = NamedTemporaryFile(mode="w", delete=False, encoding='utf-8')
-
+    src_sentences = NamedTemporaryFile(mode="w+t", delete=False, encoding='utf-8')
+    trg_sentences = NamedTemporaryFile(mode="w+t", delete=False, encoding='utf-8')
+    
     sentences = list()
     dcce_scores = dict()
 
-    with open(input_file.name) as input_f:
-        input_f.seek(0)
-        for line in input_f:
-            # print('reading input')
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) >= 2:
-                # print('writing to tempfiles')
-                src_sentences.write(parts[0] + '\n')
-                trg_sentences.write(parts[1] + '\n')
-                sentences.append((parts[0], parts[1]))
-
+    for line in input_file:
+        # print('reading input: ', line)
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 4:
+            # print('writing to tempfiles', parts[2], ' - ', parts[3])
+            src_sentences.write(parts[2] + '\n')
+            trg_sentences.write(parts[3] + '\n')
+            sentences.append((parts[2], parts[3]))
+    
+    input_file.seek(0)
     src_sentences.seek(0)
     trg_sentences.seek(0)
-
+   
     src_trg_result = subprocess.run(
         ['./scripts/dcce_scoring.sh', model_src_trg, src_sentences.name, trg_sentences.name, sv_src_trg, tv_src_trg,
-         gpus],
+         gpus], 
         stdout=subprocess.PIPE).stdout.decode('utf-8')
-
     src_sentences.seek(0)
     trg_sentences.seek(0)
 
