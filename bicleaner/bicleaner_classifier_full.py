@@ -477,11 +477,11 @@ def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_n
 
     for sentence, id_score, nd_score in zip(sentences, id_scores, nd_scores):
         h_diff = (abs(float(id_score)) - abs(float(nd_score))) / len(nltk.word_tokenize(sentence))
-        dom_exp = math.exp(-1.0 * h_diff)
-        dom = min(dom_exp, 1.0)
-        if dom < cut_off_value:
-            dom = 0.0
-        ced_scores[sentence] = dom
+        # dom_exp = math.exp(-1.0 * h_diff)
+        # dom = min(dom_exp, 1.0)
+        # if dom < cut_off_value:
+        #     dom = 0.0
+        ced_scores[sentence] = h_diff
 
     os.remove(sentences_file.name)
 
