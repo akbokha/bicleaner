@@ -450,6 +450,8 @@ def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_n
         #     dom = 0.0
         ced_scores[sentence] = h_diff
 
+    os.remove(sentences_file.name)
+
     return ced_scores
 
 

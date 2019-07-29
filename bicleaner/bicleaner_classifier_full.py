@@ -220,7 +220,8 @@ def initialization():
 
 # def profile_classifier_process(i, jobs_queue, output_queue,args):
 #    cProfile.runctx('classifier_process(i, jobs_queue, output_queue, args)', globals(), locals(), 'profiling-{}.out'.format(i))
-def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_src_scores=None, ced_trg_scores=None):
+def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_src_scores=None, ced_trg_scores=None,
+                       dom_src_scores=None, dom_trg_scores=None):
     if args.source_tokeniser_path:
         source_tokeniser = ToolWrapper(args.source_tokeniser_path.split(' '))
     else:
@@ -268,7 +269,10 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
                         lm_score = None
                         if lm_filter:
                             lm_score = lm_filter.score(sl_sentence, tl_sentence)
-                        if lm_filter and lm_score < args.lm_threshold and not args.keep_lm_result:
+                            dom_src_score = float(dom_src_scores[(sl_sentence.rstrip('\n'), tl_sentence.rstrip('\n'))])
+                            dom_trg_score = float(dom_trg_scores[(sl_sentence.rstrip('\n'), tl_sentence.rstrip('\n'))])
+                        if (lm_filter and lm_score < args.lm_threshold and not args.keep_lm_result) or \
+                                dom_src_score < 0.25 or dom_trg_score < 0.25:
                             valid_sentences.append(False)
                         else:
                             features = feature_extract(sl_sentence, tl_sentence, source_tokeniser, target_tokeniser,
@@ -442,6 +446,7 @@ def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_n
     sentences_file = NamedTemporaryFile(mode="w+t", delete=False, encoding='utf-8')
     sentences = list()
     ced_scores = dict()
+    dom_scores = dict()
 
     sentence_index = 2 if is_source else 3
 
@@ -477,15 +482,16 @@ def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_n
 
     for sentence, id_score, nd_score in zip(sentences, id_scores, nd_scores):
         h_diff = (abs(float(id_score)) - abs(float(nd_score))) / len(nltk.word_tokenize(sentence))
-        # dom_exp = math.exp(-1.0 * h_diff)
-        # dom = min(dom_exp, 1.0)
-        # if dom < cut_off_value:
-        #     dom = 0.0
+        dom_exp = math.exp(-1.0 * h_diff)
+        dom = min(dom_exp, 1.0)
+        if dom < cut_off_value:
+            dom = 0.0
         ced_scores[sentence] = h_diff
+        dom_scores[sentence] = dom
 
     os.remove(sentences_file.name)
 
-    return ced_scores
+    return ced_scores, dom_scores
 
 
 # Filtering input texts
@@ -513,12 +519,12 @@ def perform_classification(args):
                                            args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
 
     if args.ced_src_model_id and args.ced_vocab_src_model_id and args.ced_src_model_nd and args.ced_vocab_src_model_nd:
-        ced_src_scores = calculate_ced_scores(args.input, True, args.ced_cut_off_value,
+        ced_src_scores, dom_src_scores = calculate_ced_scores(args.input, True, args.ced_cut_off_value,
                                               args.ced_src_model_id, args.ced_src_model_nd,
                                               args.ced_vocab_src_model_id, args.ced_vocab_src_model_nd, args.gpu)
 
     if args.ced_trg_model_id and args.ced_vocab_trg_model_id and args.ced_trg_model_nd and args.ced_vocab_trg_model_nd:
-        ced_trg_scores = calculate_ced_scores(args.input, False, args.ced_cut_off_value,
+        ced_trg_scores, dom_trg_scores = calculate_ced_scores(args.input, False, args.ced_cut_off_value,
                                               args.ced_trg_model_id, args.ced_trg_model_nd,
                                               args.ced_vocab_trg_model_id, args.ced_vocab_trg_model_nd, args.gpu)
 
@@ -532,7 +538,8 @@ def perform_classification(args):
     workers = []
     for i in range(worker_count):
         filter = Process(target=classifier_process,  # profile_classifier_process
-                         args=(i, jobs_queue, output_queue, args, dcce_scores, ced_src_scores, ced_trg_scores))
+                         args=(i, jobs_queue, output_queue, args, dcce_scores, ced_src_scores, ced_trg_scores,
+                               dom_src_scores, dom_trg_scores))
         filter.daemon = True  # dies with the parent process
 
         filter.start()
