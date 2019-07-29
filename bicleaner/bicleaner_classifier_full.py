@@ -269,8 +269,8 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
                         lm_score = None
                         if lm_filter:
                             lm_score = lm_filter.score(sl_sentence, tl_sentence)
-                            dom_src_score = float(dom_src_scores[(sl_sentence.rstrip('\n'), tl_sentence.rstrip('\n'))])
-                            dom_trg_score = float(dom_trg_scores[(sl_sentence.rstrip('\n'), tl_sentence.rstrip('\n'))])
+                            dom_src_score = float(dom_src_scores[sl_sentence.rstrip('\n')])
+                            dom_trg_score = float(dom_trg_scores[tl_sentence.rstrip('\n')])
                         if (lm_filter and lm_score < args.lm_threshold and not args.keep_lm_result) or \
                                 dom_src_score < 0.25 or dom_trg_score < 0.25:
                             valid_sentences.append(False)
