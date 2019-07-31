@@ -89,6 +89,9 @@ def initialization():
                         help="The GPUs (device-ids) that should be used for dcce-scoring and ced-scoring")
 
     # for dcce scoring
+    groupO.add_argument('--dcce_scores', type=argparse.FileType('rt'), default=None,
+                        help="dcce scores")
+
     groupO.add_argument('--dcce_model_src_trg', default=None,
                         help="Translation model (src-trg) used for dual-conditional cross-entropy scoring")
     groupO.add_argument('--dcce_model_trg_src', default=None,
@@ -103,6 +106,11 @@ def initialization():
                         help="Vocab (trg-side) of MT model (trg-src) used for dual-conditional cross-entropy scoring")
 
     # for ced scoring
+    groupO.add_argument('--ced_src_scores', type=argparse.FileType('rt'), default=None,
+                        help="ced source scores")
+    groupO.add_argument('--ced_trg_scores', type=argparse.FileType('rt'), default=None,
+                        help="ced target scores")
+
     groupO.add_argument('--ced_src_model_id', default=None,
                         help="In-domain language model (src) used for cross-entropy difference filtering")
     groupO.add_argument('--ced_vocab_src_model_id', default=None,
@@ -528,6 +536,62 @@ def calculate_ced_scores(input_file, is_source, cut_off_value, model_id, model_n
     return ced_scores, dom_scores
 
 
+def extract_dcce_scores(input_file, scores_file):
+    sentences = list()
+    scores = list()
+
+    input_file.seek(0)
+
+    for line in input_file:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 4:
+            sentences.append((parts[2], parts[3]))
+
+    input_file.seek(0)
+
+    scores_file.seek(0)
+
+    for line in scores_file:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 1:
+            scores.append(float(parts[0]))
+
+    scores_file.seek(0)
+
+    assert len(sentences) == len(scores)
+
+    return dict(zip(sentences, scores))
+
+
+def extract_ced_scores(input_file, scores_file, is_source):
+    sentences = list()
+    scores = list()
+
+    sentence_index = 2 if is_source else 3
+
+    input_file.seek(0)
+
+    for line in input_file:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 4:
+            sentences.append(parts[sentence_index])
+
+    input_file.seek(0)
+
+    scores_file.seek(0)
+
+    for line in scores_file:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 1:
+            scores.append(float(parts[0]))
+
+    scores_file.seek(0)
+
+    assert len(sentences) == len(scores)
+
+    return dict(zip(sentences, scores))
+
+
 # Filtering input texts
 def perform_classification(args):
     time_start = default_timer()
@@ -544,7 +608,9 @@ def perform_classification(args):
     ced_src_scores = None
     ced_trg_scores = None
 
-    if args.dcce_model_src_trg and args.dcce_model_trg_src and\
+    if args.dcce_scores:
+        dcce_scores = extract_dcce_scores(args.input, args.dcce_scores)
+    elif args.dcce_model_src_trg and args.dcce_model_trg_src and\
             args.dcce_src_vocab_src_trg and args.dcce_trg_vocab_src_trg and\
             args.dcce_src_vocab_trg_src and args.dcce_trg_vocab_trg_src:
 
@@ -552,12 +618,16 @@ def perform_classification(args):
                                            args.dcce_src_vocab_src_trg, args.dcce_trg_vocab_src_trg,
                                            args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
 
-    if args.ced_src_model_id and args.ced_vocab_src_model_id and args.ced_src_model_nd and args.ced_vocab_src_model_nd:
+    if args.ced_src_scores:
+        ced_src_scores = extract_ced_scores(args.input, args.ced_src_scores, True)
+    elif args.ced_src_model_id and args.ced_vocab_src_model_id and args.ced_src_model_nd and args.ced_vocab_src_model_nd:
         ced_src_scores, dom_src_scores = calculate_ced_scores(args.input, True, args.ced_cut_off_value,
                                               args.ced_src_model_id, args.ced_src_model_nd,
                                               args.ced_vocab_src_model_id, args.ced_vocab_src_model_nd, args.gpu)
 
-    if args.ced_trg_model_id and args.ced_vocab_trg_model_id and args.ced_trg_model_nd and args.ced_vocab_trg_model_nd:
+    if args.ced_trg_scores:
+        ced_trg_scores = extract_ced_scores(args.input, args.ced_trg_scores, False)
+    elif args.ced_trg_model_id and args.ced_vocab_trg_model_id and args.ced_trg_model_nd and args.ced_vocab_trg_model_nd:
         ced_trg_scores, dom_trg_scores = calculate_ced_scores(args.input, False, args.ced_cut_off_value,
                                               args.ced_trg_model_id, args.ced_trg_model_nd,
                                               args.ced_vocab_trg_model_id, args.ced_vocab_trg_model_nd, args.gpu)
