@@ -81,6 +81,10 @@ def initialization():
                         help="Threshold for language model fluency scoring. All TUs whose LM fluency score falls below the threshold will are removed (classifier score set to 0), unless the option --keep_lm_result set.")
     groupO.add_argument('--keep_lm_result', action='store_true',
                         help="Add an additional column to the results with the language model fluency score and do not discard any TU based on that score.")
+    groupO.add_argument('--dom_threshold', default=None,
+                        help="if specified, filter sentence pairs using the src and trg dom-score and this threshold")
+    groupO.add_argument('--keep_dom_result', action='store_true',
+                        help="Add an additional column to the results with the dom_score (src and trg) and do not discard any TU based on that score.")
     groupO.add_argument('--gpu', default='0',
                         help="The GPUs (device-ids) that should be used for dcce-scoring and ced-scoring")
 
@@ -248,6 +252,8 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
                 logging.debug("Classification: creating temporary filename {0}".format(fileout.name))
                 feats = []
                 lm_scores = []
+                dom_src_scrs = []
+                dom_trg_scrs = []
 
                 # Create the following arrays:
                 # valid_sentences: boolean, length of input. States whether each sentence passed
@@ -269,10 +275,19 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
                         lm_score = None
                         if lm_filter:
                             lm_score = lm_filter.score(sl_sentence, tl_sentence)
+                        if args.dom_threshold:
                             dom_src_score = float(dom_src_scores[sl_sentence.rstrip('\n')])
                             dom_trg_score = float(dom_trg_scores[tl_sentence.rstrip('\n')])
-                        if (lm_filter and lm_score < args.lm_threshold and not args.keep_lm_result) or \
-                                dom_src_score < 0.25 or dom_trg_score < 0.25:
+
+                        if args.keep_dom_result:
+                            dom_src_scrs.append(dom_src_score)
+                            dom_trg_scrs.append(dom_trg_score)
+
+                        if lm_filter and lm_score < args.lm_threshold and not args.keep_lm_result:
+                            valid_sentences.append(False)
+                            lm_scores.append(lm_score)
+                        elif args.dom_threshold and \
+                                (dom_src_score < args.dom_threshold or dom_trg_score < args.dom_threshold):
                             valid_sentences.append(False)
                         else:
                             features = feature_extract(sl_sentence, tl_sentence, source_tokeniser, target_tokeniser,
@@ -289,6 +304,9 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
                 piter = iter(predictions)
                 if lm_filter:
                     lmiter = iter(lm_scores)
+                if args.keep_dom_result:
+                    dom_src_iter = iter(dom_src_scrs)
+                    dom_trg_iter = iter(dom_trg_scrs)
                 for i, valid_sentence in zip(filein, valid_sentences):
                     if valid_sentence:
                         p = next(piter)
@@ -300,12 +318,28 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
                             lm_score = next(lmiter)
                             fileout.write("\t")
                             fileout.write(str(lm_score))
+                        if args.keep_dom_result:
+                            dom_src = next(dom_src_iter)
+                            dom_trg = next(dom_trg_iter)
+                            fileout.write("\t")
+                            fileout.write(str(dom_src))
+                            fileout.write("\t")
+                            fileout.write(str(dom_trg))
                         fileout.write("\n")
                     else:
                         fileout.write(i.strip("\n"))
                         fileout.write("\t0")
                         if lm_filter and args.keep_lm_result:
-                            fileout.write("\t0")
+                            lm_score = next(lmiter)
+                            fileout.write("\t")
+                            fileout.write(str(lm_score))
+                        if args.keep_dom_result:
+                            dom_src = next(dom_src_iter)
+                            dom_trg = next(dom_trg_iter)
+                            fileout.write("\t")
+                            fileout.write(str(dom_src))
+                            fileout.write("\t")
+                            fileout.write(str(dom_trg))
                         fileout.write("\n")
 
                 ojob = (nblock, fileout.name)
