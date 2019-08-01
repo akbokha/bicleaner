@@ -585,7 +585,10 @@ def extract_ced_scores(input_file, scores_file, is_source):
         parts = line.rstrip("\n").split("\t")
         if len(parts) >= 1:
             dom_score = float(parts[0])
-            hdiff_score = -1 * math.log(dom_score)
+            try:
+                hdiff_score = -1 * math.log(dom_score)
+            except ValueError:
+                hdiff_score = math.log(1e6)
             dom_scores.append(dom_score)
             hdiff_scores.append(hdiff_score)
 
