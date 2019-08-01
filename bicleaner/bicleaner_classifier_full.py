@@ -565,7 +565,8 @@ def extract_dcce_scores(input_file, scores_file):
 
 def extract_ced_scores(input_file, scores_file, is_source):
     sentences = list()
-    scores = list()
+    dom_scores = list()
+    hdiff_scores = list()
 
     sentence_index = 2 if is_source else 3
 
@@ -583,13 +584,16 @@ def extract_ced_scores(input_file, scores_file, is_source):
     for line in scores_file:
         parts = line.rstrip("\n").split("\t")
         if len(parts) >= 1:
-            scores.append(float(parts[0]))
+            dom_score = float(parts[0])
+            hdiff_score = -1 * math.log(dom_score)
+            dom_scores.append(dom_score)
+            hdiff_scores.append(hdiff_score)
 
     scores_file.seek(0)
 
-    assert len(sentences) == len(scores)
+    assert len(sentences) == len(dom_scores) == len(hdiff_scores)
 
-    return dict(zip(sentences, scores))
+    return dict(zip(sentences, hdiff_scores)), dict(zip(sentences, dom_scores))
 
 
 # Filtering input texts
@@ -619,14 +623,14 @@ def perform_classification(args):
                                            args.dcce_src_vocab_trg_src, args.dcce_trg_vocab_trg_src, args.gpu)
 
     if args.ced_src_scores:
-        ced_src_scores = extract_ced_scores(args.input, args.ced_src_scores, True)
+        ced_src_scores, dom_src_scores = extract_ced_scores(args.input, args.ced_src_scores, True)
     elif args.ced_src_model_id and args.ced_vocab_src_model_id and args.ced_src_model_nd and args.ced_vocab_src_model_nd:
         ced_src_scores, dom_src_scores = calculate_ced_scores(args.input, True, args.ced_cut_off_value,
                                               args.ced_src_model_id, args.ced_src_model_nd,
                                               args.ced_vocab_src_model_id, args.ced_vocab_src_model_nd, args.gpu)
 
     if args.ced_trg_scores:
-        ced_trg_scores = extract_ced_scores(args.input, args.ced_trg_scores, False)
+        ced_trg_scores, dom_trg_scores = extract_ced_scores(args.input, args.ced_trg_scores, False)
     elif args.ced_trg_model_id and args.ced_vocab_trg_model_id and args.ced_trg_model_nd and args.ced_vocab_trg_model_nd:
         ced_trg_scores, dom_trg_scores = calculate_ced_scores(args.input, False, args.ced_cut_off_value,
                                               args.ced_trg_model_id, args.ced_trg_model_nd,
