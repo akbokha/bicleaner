@@ -89,6 +89,8 @@ def initialization():
                         help="The GPUs (device-ids) that should be used for dcce-scoring and ced-scoring")
 
     # for dcce scoring
+    groupO.add_argument('--use_dcce_features', action='store_true',
+                        help="Use ced features in classification")
     groupO.add_argument('--dcce_scores', type=argparse.FileType('rt'), default=None,
                         help="dcce scores")
 
@@ -106,6 +108,8 @@ def initialization():
                         help="Vocab (trg-side) of MT model (trg-src) used for dual-conditional cross-entropy scoring")
 
     # for ced scoring
+    groupO.add_argument('--use_biced_features', action='store_true',
+                        help="Use ced features in classification")
     groupO.add_argument('--ced_src_scores', type=argparse.FileType('rt'), default=None,
                         help="ced source scores")
     groupO.add_argument('--ced_trg_scores', type=argparse.FileType('rt'), default=None,
@@ -242,7 +246,10 @@ def classifier_process(i, jobs_queue, output_queue, args, dcce_scores=None, ced_
         target_tokeniser = ToolWrapper(args.target_tokeniser_path.split(' '))
     else:
         target_tokeniser = MosesTokenizer(args.target_lang)
-
+    
+    if args.dom_threshold:
+        args.dom_threshold = float(args.dom_threshold)
+    
     # Load LM for fluency scoring
     lm_filter = None
     if args.source_lm and args.target_lm:
@@ -614,6 +621,8 @@ def perform_classification(args):
     dcce_scores = None
     ced_src_scores = None
     ced_trg_scores = None
+    dom_src_scores = None
+    dom_trg_scores = None
 
     if args.dcce_scores:
         dcce_scores = extract_dcce_scores(args.input, args.dcce_scores)

@@ -399,19 +399,19 @@ def feature_extract(srcsen, trgsen, tokenize_l, tokenize_r, args,
         features.extend(feature_capitalized_preservation(left_sentence_orig_tok, right_sentence_orig_tok))
         features.extend(feature_capitalized_preservation(left_sentence_orig_tok, right_sentence_orig_tok))
 
-    if dcce_scores:
+    if dcce_scores and args.use_dcce_features:
         try:
             features.append(float(dcce_scores[(srcsen.rstrip('\n'), trgsen.rstrip('\n'))]))
         except KeyError:  # dcce score for wrong examples (i.e. shuffled src - target sentence pairs)
             features.append(0.0)
 
-    if ced_src_scores:
+    if ced_src_scores and args.use_biced_features:
         try:
             features.append(float(ced_src_scores[srcsen.rstrip('\n')]))
         except KeyError:
             features.append(0.0)
 
-    if ced_trg_scores:
+    if ced_trg_scores and args.use_biced_features:
         try:
             features.append(float(ced_trg_scores[trgsen.rstrip('\n')]))
         except KeyError:
